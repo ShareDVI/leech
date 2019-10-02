@@ -4,7 +4,6 @@ import http.client
 import logging
 import datetime
 import re
-import urllib
 from . import register, Site, Section, Chapter
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,7 @@ class RoyalRoad(Site):
         )
 
         for chapter in soup.select('#chapters tbody tr[data-url]'):
-            chapter_url = str(urllib.parse.urljoin(story.url, str(chapter.get('data-url'))))
+            chapter_url = str(self._join_url(story.url, str(chapter.get('data-url'))))
 
             contents, updated = self._chapter(chapter_url)
 
@@ -55,13 +54,13 @@ class RoyalRoad(Site):
 
         author_note = soup.find_all('div', class_='author-note-portlet')
 
-        if len(author_note) is 1:
+        if len(author_note) == 1:
             # Find the parent of chapter-content and check if the author's note is the first child div
             if 'author-note-portlet' in soup.find('div', class_='chapter-content').parent.find('div')['class']:
                 content = author_note[0].prettify() + '<hr/>' + content
             else:  # The author note must be after the chapter content
                 content = content + '<hr/>' + author_note[0].prettify()
-        elif len(author_note) is 2:
+        elif len(author_note) == 2:
             content = author_note[0].prettify() + '<hr/>' + content + '<hr/>' + author_note[1].prettify()
 
         updated = datetime.datetime.fromtimestamp(

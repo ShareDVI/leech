@@ -3,7 +3,6 @@
 import logging
 import datetime
 import re
-import urllib
 import requests_cache
 from bs4 import BeautifulSoup
 from . import register, Site, Section, Chapter
@@ -38,7 +37,7 @@ class ArchiveOfOurOwn(Site):
             # I feel the session *should* handle this cookies bit for me. But
             # it doesn't. And I don't know why.
             self.session.post(
-                urllib.parse.urljoin(login.url, str(form.get('action'))),
+                self._join_url(login.url, str(form.get('action'))),
                 data=post, cookies=login.cookies
             )
             logger.info("Logged in as %s", login_details[0])
@@ -48,33 +47,39 @@ class ArchiveOfOurOwn(Site):
         return self._extract_work(workid)
 
     def _extract_work(self, workid):
-        nav_url = 'http://archiveofourown.org/works/{}/navigate?view_adult=true'.format(workid)
-        soup = self._soup(nav_url)
+        # Fetch the full work
+        url = 'http://archiveofourown.org/works/{}?view_adult=true&view_full_work=true'.format(workid)
+        logger.info("Extracting full work @ %s", url)
+        soup = self._soup(url)
 
-        metadata = soup.select('#main h2.heading a')
         story = Section(
-            title=metadata[0].text.strip(),
-            author=metadata[1].text.strip(),
+            title=soup.select('#workskin > .preface .title')[0].text.strip(),
+            author=soup.select('#workskin .preface .byline a')[0].text.strip(),
+            summary=soup.select('#workskin .preface .summary blockquote')[0].prettify(),
             url='http://archiveofourown.org/works/{}'.format(workid)
         )
 
-        for chapter in soup.select('#main ol[role="navigation"] li'):
+        # Fetch the chapter list as well because it contains info that's not in the full work
+        nav_soup = self._soup('https://archiveofourown.org/works/{}/navigate'.format(workid))
+
+        for index, chapter in enumerate(nav_soup.select('#main ol[role="navigation"] li')):
             link = chapter.find('a')
-            chapter_url = urllib.parse.urljoin(nav_url, str(link.get('href')))
-            chapter_url += '?view_adult=true'
+            logger.info("Extracting chapter %s", link.string)
 
             updated = datetime.datetime.strptime(
                 chapter.find('span', class_='datetime').string,
                 "(%Y-%m-%d)"
             )
 
-            story.add(Chapter(title=link.string, contents=self._chapter(chapter_url), date=updated))
+            story.add(Chapter(
+                title=link.string,
+                contents=self._chapter(soup.find(id='chapter-{}'.format(index + 1))),
+                date=updated
+            ))
 
         return story
 
-    def _chapter(self, url):
-        logger.info("Extracting chapter @ %s", url)
-        soup = self._soup(url)
+    def _chapter(self, soup):
         content = soup.find('div', role='article')
 
         for landmark in content.find_all(class_='landmark'):
